@@ -1,0 +1,169 @@
+---
+title: "Code used for analysis"
+author: |
+    | Chloe You 
+    | xinyuan.you@stat.ubc.ca
+date: "`r format(Sys.time(), '%B %Y')`"
+output: pdf_document
+---
+
+#Simulation: Normal, Student-t, and Cauchy Prior Comparisons
+
+```{r, message=F, warning=F}
+library(MCMCvis)
+library(rjags)
+set.seed(1)
+```
+
+## Generate Data
+
+Let $x_i$ be the indicator variable of being in the treatment group or not. $p_{control}$ and $p_{trtment}$ is the true probability of the subject being in each of the group. We simulate data via the following process:
+
+$$
+x_{i} \sim Bernoulli(0.5) 
+$$
+$$
+y_i \sim Binomial(n, p_i) 
+$$
+$$
+p_i = \begin{cases}
+ p_{control} & x_i=0 \\
+ p_{trtment}=p_{control} RR_{true}   & x_i=1
+ \end{cases} 
+$$
+We set sample size $n=100$, $p_{control}=0.3$, and $RR_{true}=0.7$. We set $\beta_0 = -2$ for easier computation. 
+
+
+```{r}
+sim = list()
+
+init = 1
+for(r in c(0.7)){
+  for (n in c(100)){
+    sim[[init]] = data.frame(x=numeric(n),p=numeric(n),y=numeric(n))
+    for(i in c(1:n)){
+      sim[[init]]$x[i] = rbinom(1,1,prob=0.5)
+      sim[[init]]$p[i] = (1-sim[[init]]$x[i])*0.3 + sim[[init]]$x[i]*0.3*r
+      sim[[init]]$y[i] = rbinom(1, 1, prob=sim[[init]]$p[i])
+    }
+    init = init + 1
+  }
+}
+```
+
+
+## Prior Specification and Statistical Model
+
+### Prior 1: $\beta_1 \sim$ Normal(0, $0.35^2$)
+
+```{r}
+genmod.string <- "model{
+  
+  ### prior distribution
+  b1 ~ dnorm(0, 8.163)
+
+  ### target parameter
+  RR <- exp(b1)
+
+  ### statistical model
+  for (i in 1:n) {
+    y[i] ~ dbern(p.bound[i])
+    p.bound[i] <- max(0, min(1, p[i]))
+    log(p[i]) <- -2 + b1*x[i]
+  }  
+}"
+
+### generative model, data go in
+
+mod <- jags.model(textConnection(genmod.string),
+                  data=list(x= sim[[1]]$x, y= sim[[1]]$y,n= nrow(sim[[1]])),
+                  n.chains=3)
+# n.chains = the number of parallel chains for the model
+
+###  MC output comes out
+
+opt.JAGS <- coda.samples(mod, 
+                 variable.names=c("RR"), 
+                 n.iter=10000)
+
+MCMCsummary(opt.JAGS)
+```
+
+### Prior 2: $\beta_1 \sim$ Cauchy(0, $2.5^2$)
+
+```{r}
+genmod.string <- "model{
+  
+  ### prior distribution
+  b1 ~ dt(0, 0.16, 1)
+
+  ### target parameter
+  RR <- exp(b1)
+
+  ### statistical model
+  for (i in 1:n) {
+    y[i] ~ dbern(p.bound[i])
+    p.bound[i] <- max(0, min(1, p[i]))
+    log(p[i]) <- -2 + b1*x[i]
+  }  
+}"
+
+### generative model, data go in
+
+mod <- jags.model(textConnection(genmod.string),
+                  data=list(x= sim[[1]]$x, y= sim[[1]]$y,n= nrow(sim[[1]])),
+                  n.chains=3)
+# n.chains = the number of parallel chains for the model
+
+###  MC output comes out
+
+opt.JAGS <- coda.samples(mod, 
+                 variable.names=c("RR"), 
+                 n.iter=10000)
+
+MCMCsummary(opt.JAGS)
+```
+
+### Prior 3: $\beta_1 \sim$ $t_7(0, 0.35^2)$
+```{r}
+genmod.string <- "model{
+  
+  ### prior distribution
+  b1 ~ dt(0, 8.16, 7)
+
+  ### target parameter
+  RR <- exp(b1)
+
+  ### statistical model
+  for (i in 1:n) {
+    y[i] ~ dbern(p.bound[i])
+    p.bound[i] <- max(0, min(1, p[i]))
+    log(p[i]) <- -2 + b1*x[i]
+  }  
+}"
+
+### generative model, data go in
+
+mod <- jags.model(textConnection(genmod.string),
+                  data=list(x= sim[[1]]$x, y= sim[[1]]$y,n= nrow(sim[[1]])),
+                  n.chains=3)
+# n.chains = the number of parallel chains for the model
+
+###  MC output comes out
+
+opt.JAGS <- coda.samples(mod, 
+                 variable.names=c("RR"), 
+                 n.iter=10000)
+
+MCMCsummary(opt.JAGS)
+```
+
+### Non-Bayesian Estimates
+```{r}
+nonbay= glm(formula = sim[[1]]$y ~ sim[[1]]$x, family = binomial(link = log))
+summary(nonbay)
+exp(confint(nonbay))
+```
+
+
+
